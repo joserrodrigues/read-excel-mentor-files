@@ -19,14 +19,15 @@ import requests
 import os
 from dotenv import load_dotenv
 import datetime
-
+import warnings
 
 def createAppFiles(log_file_name, isMac):
     if os.path.exists(log_file_name):
-        os.remove(log_file_name)
-    else:
-        print("The file does not exist")            
-    
+        os.remove(log_file_name)    
+
+    warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
+
+
     load_dotenv()
     logging.basicConfig(filename=log_file_name, level=logging.DEBUG)        
 
@@ -44,6 +45,10 @@ def createAppFiles(log_file_name, isMac):
     if os.path.exists(getResultFile(isMac)):
         os.remove(getResultFile(isMac))
 
+def sendImportantMessage(message):
+    print(message)
+    logging.debug(message)
+
 def getResultFile(isMac):    
     if(isMac):
         return var_loc + '/resultado/' + 'resultado.xlsx'        
@@ -52,7 +57,6 @@ def getResultFile(isMac):
 
 
 def createResult(var_loc, isMac):
-    print("Criando Restul")
     wb = openpyxl.Workbook()    
     mainWks = wb.active
     
@@ -69,7 +73,6 @@ def createResult(var_loc, isMac):
     mainWks.cell(row=1, column=10).value = 'Data'
     mainWks.cell(row=1, column=11).value = 'Quantidade de Horas'
     mainWks.cell(row=1, column=12).value = 'Observacao'
-    logging.debug('BEFORE SAVE ' + var_loc)
 
     for courses in array_courses:
         wks = wb.create_sheet(title=courses)
@@ -94,6 +97,54 @@ def createResult(var_loc, isMac):
 
     wb.save(getResultFile(isMac))  # salva o workbook
 
+def getRightWorksheet(workbook):
+    ind = 0
+    for worksheet in workbook.worksheets:
+        if ("Preencher" in str(worksheet)):
+            return ind
+        ind += 1
+    return -1
+
+def checkCellInfo(worksheet, row, column, info_waited):
+    aux_info = worksheet.cell(row, column).value
+    if(not isinstance(aux_info, str) or info_waited not in aux_info):
+        sendImportantMessage("[ERROR] Planilha com formato inválido: " + info_waited +" != "+ str(aux_info) + " \n\n")
+        return False
+    return True
+
+def checkWorkSheetPattern(workbook):
+
+    work_sheet_ind = getRightWorksheet(workbook)
+    if(work_sheet_ind == -1):
+        sendImportantMessage("[ERROR] Planilha com formato inválido: Worksheet fora do padrao \n\n")
+        return False    
+
+    worksheet = workbook.worksheets[work_sheet_ind]
+
+    if (not checkCellInfo(worksheet, 1, 1, "Apontamento de horas mensal")):
+        return False
+    if (not checkCellInfo(worksheet, 3, 1, "Mês")):
+        return False
+    if (not checkCellInfo(worksheet, 4, 1, "Nome do professor")):
+        return False
+    if (not checkCellInfo(worksheet, 5, 1, "Tipo de contrato")):
+        return False
+    if (not checkCellInfo(worksheet, 7, 1, "Curso")):
+        return False
+    if (not checkCellInfo(worksheet, 7, 2, "Turma")):
+        return False
+    if (not checkCellInfo(worksheet, 7, 3, "Fase")):
+        return False
+    if (not checkCellInfo(worksheet, 7, 4, "Tipo de atividade")):
+        return False
+    if (not checkCellInfo(worksheet, 7, 5, "Data")):
+        return False
+    if (not checkCellInfo(worksheet, 7, 6, "Quantidade de horas")):
+        return False
+    if (not checkCellInfo(worksheet, 7, 7, "Observação")):
+        return False
+    
+    return True
 
 def mountInfo(wb, array_send, line_controller, fileName, month, year, prof, contract, course, class_txt, phase, activity, 
                 final_data, final_machine_data, hours, obs):
@@ -135,7 +186,7 @@ def mountInfo(wb, array_send, line_controller, fileName, month, year, prof, cont
     work_sheet.cell(row=wkLine, column=16).value = "**Copiar"
     work_sheet.cell(row=wkLine, column=17).value = str(hours).replace(".", ",")
     work_sheet.cell(row=wkLine, column=18).value = ""
-
+    
     wkLine = line_controller[course]
     work_sheet = wb[course]
     work_sheet.cell(row=wkLine, column=1).value = "VSTP"
@@ -164,15 +215,15 @@ def sendPowerBI(array_send,wb):
     logging.debug("Array to Send")
     logging.debug(array_send)
     res = json.dumps(array_send)
-    logging.debug(res)
     r = requests.post(os.environ['URL']+ os.environ['KEY'], data=res)
 
     logging.debug("Sending to Power BI")
-    logging.debug("File  = " + str(wb))
-    logging.debug("Code  = " + str(r.status_code))
-    logging.debug("Info  = " + str(r.text))
-    print("Sending to Power BI - Code " + str(r.status_code))
-    print("Sending to Power BI - Code " + str(r.text))
+    if(r.status_code == 200):
+        sendImportantMessage("Sending to Power BI - Success " + str(r.status_code))
+    else:
+        sendImportantMessage("Sending to Power BI - Error Code " + str(r.status_code) + " \n Status:" + str(r.text))
+        return False
+    return True
 
 
 # Variáveis
@@ -204,12 +255,14 @@ array_courses = ['GTIO', 'AOJO', 'ASOO', 'ABDO', 'DTSO', 'BDTO', 'DGO', 'NGO', '
 isMac = False
 # verifica se o sistema operacional é Linux ou MacOS
 if(var_os == 'linux' or var_os == 'linux2' or var_os == 'darwin'):
-    print('Is Mac')    
     isMac = True
 
 #cria os arquivos e pastas utilizadas no app
 createAppFiles('reading.log', isMac)
-logging.debug("Iniciando a Importacao")
+info_message = "\n ------------------------------------------------------------------"
+info_message += "\n  Iniciando a importacao "
+info_message += "\n ------------------------------------------------------------------"
+sendImportantMessage(info_message)
 
 # verifica se os diretorios resultantes existem, se não, os cria
 if(os.path.isfile(getResultFile(isMac)) == False):
@@ -233,61 +286,101 @@ line_controller['all'] = 1
 for course in array_courses:
     line_controller[course] = 2
 
+total_process_number = 0
+success_process_number = 0
+error_process_number = 0
+success_send_bi_number = 0
+error_send_bi_number = 0
 logging.debug("ARQUIVOS Excel a ler")
 logging.debug(var_flt)
 # Iterando sobre a lista de nomes de arquivos e seu conteúdo
 for wb in var_flt:
 
+    total_process_number +=1
     array_send = []
     var_naq = var_flt[var_ctr]
-    workbook = openpyxl.load_workbook(wb) # chamada que abre o arquivo desejado
-    worksheet = workbook.worksheets[1] # definindo qual o caderno do Excel que será utilizado (nesse caso é o segundo, contagem começa em 0)
+    is_reading_ok = False
+    sendImportantMessage("Reading: " + wb)
 
-    var_mon = worksheet.cell(row=3, column=2).value # lendo o mês do relatório
-    var_yea = worksheet.cell(row=3, column=6).value # lendo o ano do relatório
-    var_prf = worksheet.cell(row=4, column=3).value # lendo o nome do professor
-    var_tct = worksheet.cell(row=5, column=3).value # lendo o tipo de contrato do professor
+    try:
+        workbook = openpyxl.load_workbook(wb) # chamada que abre o arquivo desejado
+        is_reading_ok = True
+    except:
+        sendImportantMessage("[ERROR] Erro ao abrir a planilha")
 
-    var_lin = 8 # contador começa em 8 por ser a primeira linha que contém informações sobre as atividades
-    var_col = 1 # contador começa em 1 por ser a primeira coluna que contém informações sobre as atividades
-    while var_lin < 70: # iterando sobre a tabela com os dados das atividades reportadas        
-        var_check_end = worksheet.cell(row=var_lin, column=6).value # lendo o curso que o professor indicou        
-        if (isinstance(var_check_end, str) and "SUM" in var_check_end): # Checa se o cursor chegou no final da planilha
-            var_lin = 100
-        else:
-            var_crs = worksheet.cell(row=var_lin, column=var_col).value # lendo o curso que o professor indicou
-            if(var_crs is not None): # verifica se há um curso sendo reportado, em caso de em branco, pula
-                var_trm = worksheet.cell(row=var_lin, column=var_col + 1).value # lendo a turma
-                var_fas = worksheet.cell(row=var_lin, column=var_col + 2).value # lendo a fase
-                var_atv = worksheet.cell(row=var_lin, column=var_col + 3).value # lendo a atividade
-                var_dat = worksheet.cell(row=var_lin, column=var_col + 4).value # lendo a data da ocorrência
-                var_qhr = worksheet.cell(row=var_lin, column=var_col + 5).value # lendo a quantidade de horas indicada
-                var_obs = worksheet.cell(row=var_lin, column=var_col + 6).value # lendo a observação que foi apontada
-                var_col = 1 # resetando o contador de colunas
-                var_lin = var_lin + 1 # pulando para a próxima linha
+    if(is_reading_ok and checkWorkSheetPattern(workbook)):
+        # definindo qual o caderno do Excel que será utilizado
+        work_sheet_ind = getRightWorksheet(workbook)
+        worksheet = workbook.worksheets[work_sheet_ind]
 
-                #Trabalhando com a data 
-                final_var_data = ""
-                final_machine_data = ""
-                if (isinstance(var_dat, datetime.datetime)):
-                    final_var_data = var_dat.strftime("%d/%m/%Y")
-                    final_machine_data = var_dat.strftime("%Y-%m-%d")
-                elif (isinstance(var_dat, str)):
-                    final_var_data = final_machine_data = var_dat[0: 10]
-                else:
-                    final_var_data = final_machine_data = var_dat
+        var_mon = worksheet.cell(row=3, column=2).value # lendo o mês do relatório
+        var_yea = worksheet.cell(row=3, column=6).value # lendo o ano do relatório
+        var_prf = worksheet.cell(row=4, column=3).value # lendo o nome do professor
+        var_tct = worksheet.cell(row=5, column=3).value # lendo o tipo de contrato do professor
+        
+        if(str(var_prf) == "" or str(var_prf) == "None"):
+            var_prf = worksheet.cell(row=4, column=1).value # lendo o nome do professor
+            var_prf = var_prf.replace("Nome do professor: ", "")
 
-                mountInfo(var_wkb, array_send, line_controller, var_naq, var_mon, var_yea, var_prf, var_tct, var_crs,
-                          var_trm, var_fas, var_atv, final_var_data, final_machine_data, var_qhr, var_obs)
+        var_lin = 8 # contador começa em 8 por ser a primeira linha que contém informações sobre as atividades
+        var_col = 1 # contador começa em 1 por ser a primeira coluna que contém informações sobre as atividades
+        while var_lin < 70: # iterando sobre a tabela com os dados das atividades reportadas        
+            var_check_end = worksheet.cell(row=var_lin, column=6).value # lendo o curso que o professor indicou        
+            if (isinstance(var_check_end, str) and "SUM" in var_check_end): # Checa se o cursor chegou no final da planilha
+                var_lin = 100
             else:
-                var_lin = var_lin + 1 # pulando para a próxima linha
-    
-    sendPowerBI(array_send, wb) #Envia para o PowerBI
-    array_send.clear() # Limpa o array
-    shutil.move(wb, var_loc_done) #Move para a pasta de lidos
-    var_ctr = var_ctr + 1 # pula para a próxima planiha quando termina a iteração da atual
+                var_crs = worksheet.cell(row=var_lin, column=var_col).value # lendo o curso que o professor indicou
+                if(var_crs is not None): # verifica se há um curso sendo reportado, em caso de em branco, pula
+                    var_trm = worksheet.cell(row=var_lin, column=var_col + 1).value # lendo a turma
+                    var_fas = worksheet.cell(row=var_lin, column=var_col + 2).value # lendo a fase
+                    var_atv = worksheet.cell(row=var_lin, column=var_col + 3).value # lendo a atividade
+                    var_dat = worksheet.cell(row=var_lin, column=var_col + 4).value # lendo a data da ocorrência
+                    var_qhr = worksheet.cell(row=var_lin, column=var_col + 5).value # lendo a quantidade de horas indicada
+                    var_obs = str(worksheet.cell(row=var_lin, column=var_col + 6).value) # lendo a observação que foi apontada
+                    var_col = 1 # resetando o contador de colunas
+                    var_lin = var_lin + 1 # pulando para a próxima linha
+
+                    if(str(var_obs) == "None"):
+                        var_obs = ""
+
+                    #Trabalhando com a data 
+                    final_var_data = ""
+                    final_machine_data = ""
+                    if (isinstance(var_dat, datetime.datetime)):
+                        final_var_data = var_dat.strftime("%d/%m/%Y")
+                        final_machine_data = var_dat.strftime("%Y-%m-%d")
+                    else:
+                        newDate = datetime.date.today().replace(day=1)
+                        final_var_data = newDate.strftime("%d/%m/%Y")
+                        final_machine_data = newDate.strftime("%Y-%m-%d")
+                        var_obs += " Data Corrigida - Dado Enviado = " + str(var_dat) 
+
+                    mountInfo(var_wkb, array_send, line_controller, var_naq, var_mon, var_yea, var_prf, var_tct, var_crs,
+                            var_trm, var_fas, var_atv, final_var_data, final_machine_data, var_qhr, var_obs)
+                else:
+                    var_lin = var_lin + 1 # pulando para a próxima linha
+
+        if sendPowerBI(array_send, wb): #Envia para o PowerBI
+            success_send_bi_number +=1
+        else:
+            error_send_bi_number += 1
+        array_send.clear() # Limpa o array
+        shutil.move(wb, var_loc_done) #Move para a pasta de lidos
+        var_ctr = var_ctr + 1 # pula para a próxima planiha quando termina a iteração da atual
+        success_process_number +=1
+    else:
+        error_process_number += 1
+    print ("\n ------------------------------------------------------------------\n\n")
 
 var_wkb.save(var_loc + '/resultado/' + 'resultado.xlsx')
-
-
+ 
+final_message = "\n ------------------------------------------------------------------"
+final_message += "\n Fim de Processamento "
+final_message += "\n Arquivo no processo: " + str(total_process_number)
+final_message +="\n Processado com sucesso: " + str(success_process_number)
+final_message +="\n Enviado ao BI com sucesso: " + str(success_send_bi_number)
+final_message +="\n Enviado ao BI com erro: " + str(error_send_bi_number)
+final_message +="\n Processado com erro: " + str(error_process_number)
+final_message +="\n ------------------------------------------------------------------\n\n"
+sendImportantMessage(final_message)
 
