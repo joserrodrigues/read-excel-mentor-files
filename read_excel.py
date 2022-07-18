@@ -8,6 +8,7 @@
 # pip3 install requests openpyxl python-dotenv
 
 # Imports
+from fileinput import filename
 import openpyxl # biblioteca que faz a leitura e gravação em arquivos Excel
 from openpyxl.worksheet.table import Table, TableStyleInfo
 import os       # biblioteca que acessa funções do sistema operacional
@@ -20,6 +21,19 @@ import os
 from dotenv import load_dotenv
 import datetime
 import warnings
+import sys
+
+def checkSendToBI():
+    # total arguments
+    n = len(sys.argv)
+
+    if (len(sys.argv) == 1):
+        return False
+
+    for i in range(1, n):
+        if(sys.argv[i] == '-s'): 
+            return True
+
 
 def createAppFiles(log_file_name, isMac):
     if os.path.exists(log_file_name):
@@ -107,10 +121,27 @@ def getRightWorksheet(workbook):
 
 def checkCellInfo(worksheet, row, column, info_waited):
     aux_info = worksheet.cell(row, column).value
-    if(not isinstance(aux_info, str) or info_waited not in aux_info):
+    if(not isinstance(aux_info, str) or info_waited.lower() not in aux_info.lower()):
         sendImportantMessage("[ERROR] Planilha com formato inválido: " + info_waited +" != "+ str(aux_info) + " \n\n")
         return False
     return True
+
+
+def getProfessorName(workbook):
+    work_sheet_ind = getRightWorksheet(workbook)
+    worksheet = workbook.worksheets[work_sheet_ind]
+    var_prf = worksheet.cell(row=4, column=3).value # lendo o nome do professor
+        
+    if(str(var_prf) == "" or str(var_prf) == "None"):
+        var_prf = worksheet.cell(row=4, column=1).value # lendo o nome do professor
+        var_prf = var_prf.replace("Nome do professor: ", "")
+
+    if(str(var_prf) == "" or str(var_prf) == "None"):
+        var_prf = worksheet.cell(row=4, column=2).value # lendo o nome do professor
+        var_prf = var_prf.replace("Nome do professor: ", "")        
+
+    return var_prf
+
 
 def checkWorkSheetPattern(workbook):
 
@@ -139,11 +170,18 @@ def checkWorkSheetPattern(workbook):
         return False
     if (not checkCellInfo(worksheet, 7, 5, "Data")):
         return False
-    if (not checkCellInfo(worksheet, 7, 6, "Quantidade de horas")):
+    if (not checkCellInfo(worksheet, 7, 6, "de horas")):
         return False
     if (not checkCellInfo(worksheet, 7, 7, "Observação")):
         return False
     
+    var_prf = getProfessorName(workbook)
+
+    if(str(var_prf) == "" or str(var_prf) == "None"):
+        sendImportantMessage(
+            "[ERROR] Planilha com formato inválido: Nome do Professor em branco \n\n")
+        return False
+
     return True
 
 def mountInfo(wb, array_send, line_controller, fileName, month, year, prof, contract, course, class_txt, phase, activity, 
@@ -250,7 +288,9 @@ var_lin = 0 # um contador genérico para contar as linhas
 var_ctr = 0 # um contador genérico, afinal, todo programa precisa de um
 var_wkl = 0 # um contador de linhas para o Workbook
 line_controller = {}
-array_courses = ['GTIO', 'AOJO', 'ASOO', 'ABDO', 'DTSO', 'BDTO', 'DGO', 'NGO', 'BIO', 'SGO', 'SCJO'] 
+array_courses = ['GTIO', 'AOJO', 'ASOO', 'ABDO', 'DTSO', 'BDTO', 'DGO', 'NGO', 'BIO', 'SGO', 'SCJO', 'STO'] 
+
+isSendToBI = checkSendToBI()
 
 isMac = False
 # verifica se o sistema operacional é Linux ou MacOS
@@ -315,7 +355,7 @@ for wb in var_flt:
 
         var_mon = worksheet.cell(row=3, column=2).value # lendo o mês do relatório
         var_yea = worksheet.cell(row=3, column=6).value # lendo o ano do relatório
-        var_prf = worksheet.cell(row=4, column=3).value # lendo o nome do professor
+        var_prf = getProfessorName(workbook) # lendo o nome do professor
         var_tct = worksheet.cell(row=5, column=3).value # lendo o tipo de contrato do professor
         
         if(str(var_prf) == "" or str(var_prf) == "None"):
@@ -324,10 +364,10 @@ for wb in var_flt:
 
         var_lin = 8 # contador começa em 8 por ser a primeira linha que contém informações sobre as atividades
         var_col = 1 # contador começa em 1 por ser a primeira coluna que contém informações sobre as atividades
-        while var_lin < 70: # iterando sobre a tabela com os dados das atividades reportadas        
+        while var_lin < 270: # iterando sobre a tabela com os dados das atividades reportadas        
             var_check_end = worksheet.cell(row=var_lin, column=6).value # lendo o curso que o professor indicou        
             if (isinstance(var_check_end, str) and "SUM" in var_check_end): # Checa se o cursor chegou no final da planilha
-                var_lin = 100
+                var_lin = 300
             else:
                 var_crs = worksheet.cell(row=var_lin, column=var_col).value # lendo o curso que o professor indicou
                 if(var_crs is not None): # verifica se há um curso sendo reportado, em caso de em branco, pula
@@ -360,12 +400,18 @@ for wb in var_flt:
                 else:
                     var_lin = var_lin + 1 # pulando para a próxima linha
 
-        if sendPowerBI(array_send, wb): #Envia para o PowerBI
-            success_send_bi_number +=1
-        else:
-            error_send_bi_number += 1
+        # print(array_send)
+        if isSendToBI:
+            if  sendPowerBI(array_send, wb): #Envia para o PowerBI
+                success_send_bi_number +=1
+            else:
+                error_send_bi_number += 1
         array_send.clear() # Limpa o array
-        shutil.move(wb, var_loc_done) #Move para a pasta de lidos
+        
+        # Move para a pasta de lidos
+        str_filename = wb.replace(var_loc_read, "")
+        shutil.move(wb, var_loc_done+str_filename)
+        
         var_ctr = var_ctr + 1 # pula para a próxima planiha quando termina a iteração da atual
         success_process_number +=1
     else:
@@ -382,5 +428,8 @@ final_message +="\n Enviado ao BI com sucesso: " + str(success_send_bi_number)
 final_message +="\n Enviado ao BI com erro: " + str(error_send_bi_number)
 final_message +="\n Processado com erro: " + str(error_process_number)
 final_message +="\n ------------------------------------------------------------------\n\n"
+
+if(not isSendToBI):
+    final_message += "\n ATENCAO: AS INFORMACOES NAO FORAM ENVIADAS PARA O BI " 
 sendImportantMessage(final_message)
 
