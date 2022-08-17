@@ -34,7 +34,34 @@ def checkSendToBI():
         if(sys.argv[i] == '-s'): 
             return True
 
+def getMonthName(month):
+    if(month == 1):
+        return "Janeiro"
+    if(month == 2):
+        return "Fevereiro"
+    if(month == 3):
+        return "Março"
+    if(month == 4):
+        return "Abril"
+    if(month == 5):
+        return "Maio"
+    if(month == 6):
+        return "Junho"
+    if(month == 7):
+        return "Julho"
+    if(month == 8):
+        return "Agosto"
+    if(month == 9):
+        return "Setembro"
+    if(month == 10):
+        return "Outubro"
+    if(month == 11):
+        return "Novembro"
+    if(month == 12):
+        return "Dezembro"
+    return "Não definido"
 
+        
 def createAppFiles(log_file_name, isMac):
     if os.path.exists(log_file_name):
         os.remove(log_file_name)    
@@ -62,6 +89,86 @@ def createAppFiles(log_file_name, isMac):
 def sendImportantMessage(message):
     print(message)
     logging.debug(message)
+
+def convertStringToDate(hour):
+    try:
+        info = datetime.datetime.strptime(hour, '%H:%M')
+        return info        
+    except:
+        logging.debug("Error converting 1")
+
+    try:
+        info = datetime.datetime.strptime(hour, '%H:%M:%S')
+        return info        
+    except:
+        logging.debug("Error converting 2")
+
+    try:
+        info = datetime.datetime.strptime(hour, '%Y-%m-%d %H:%M:%S')
+        return info        
+    except:
+        logging.debug("Error converting 3")
+
+    try:
+        info = datetime.datetime.strptime(hour, '%d/%m/%Y %H:%M:%S')
+        return info        
+    except:
+        logging.debug("Error converting 4")
+
+def getRightDate(hour):
+    
+    if(isinstance(hour, int)):
+        logging.debug("E int")
+        return hour
+
+    if(isinstance(hour, float)):
+        logging.debug("E float")
+        return hour
+    
+    logging.debug(hour)
+    finalHour = -1
+    finalMinute = -1
+
+    # If cell is datetime.time
+    if(isinstance(hour, datetime.time)):
+        logging.debug("E DateTime")
+        finalHour = hour.hour
+        finalMinute = hour.minute
+
+    if(finalHour == -1):
+        try:
+            newInfo = float(hour)
+            if(newInfo > 0):
+                logging.debug("Convertendo Float")
+                return newInfo
+        except:
+            logging.debug("Erro convertendo float")
+
+    if(finalHour == -1):
+        logging.debug("E String")
+        # if is a string, try to convert
+        info = convertStringToDate(hour)
+        logging.debug(info)
+        if(info == None):
+            return 0        
+
+        try:
+            finalHour = info.hour
+            finalMinute = info.minute            
+        except:
+            logging.debug("Erro convertendo data")
+            return 0
+
+    logging.debug("Pre final")
+    logging.debug(finalHour)
+    if(finalMinute > 30):
+        finalHour += 1
+    elif (finalMinute > 0):
+        finalHour += 0.5        
+
+    logging.debug("Final")
+    logging.debug(finalHour)
+    return finalHour
 
 def getResultFile(isMac):    
     if(isMac):
@@ -140,6 +247,12 @@ def getProfessorName(workbook):
         var_prf = worksheet.cell(row=4, column=2).value # lendo o nome do professor
         var_prf = var_prf.replace("Nome do professor: ", "")        
 
+    var_prf = var_prf.replace("_","")
+    var_prf = var_prf.replace("-","")
+
+    if(var_prf.strip() == ""):
+        var_prf = ""
+        
     return var_prf
 
 
@@ -152,14 +265,14 @@ def checkWorkSheetPattern(workbook):
 
     worksheet = workbook.worksheets[work_sheet_ind]
 
-    if (not checkCellInfo(worksheet, 1, 1, "Apontamento de horas mensal")):
-        return False
+    # if (not checkCellInfo(worksheet, 1, 1, "Apontamento de horas mensal")):
+    #     return False
     if (not checkCellInfo(worksheet, 3, 1, "Mês")):
         return False
     if (not checkCellInfo(worksheet, 4, 1, "Nome do professor")):
         return False
-    if (not checkCellInfo(worksheet, 5, 1, "Tipo de contrato")):
-        return False
+    # if (not checkCellInfo(worksheet, 5, 1, "Tipo de contrato")):
+    #     return False
     if (not checkCellInfo(worksheet, 7, 1, "Curso")):
         return False
     if (not checkCellInfo(worksheet, 7, 2, "Turma")):
@@ -182,13 +295,27 @@ def checkWorkSheetPattern(workbook):
             "[ERROR] Planilha com formato inválido: Nome do Professor em branco \n\n")
         return False
 
+    # checking if Quantity time in first line has correct info
+    first_qtd_line = worksheet.cell(8, 6).value
+    first_hour = getRightDate(first_qtd_line)
+    if(first_hour == 0):
+        sendImportantMessage(
+            "[ERROR] Planilha com formato inválido: Hora enviada está incorreta \n\n")
+        return False
+
     return True
 
 def mountInfo(wb, array_send, line_controller, fileName, month, year, prof, contract, course, class_txt, phase, activity, 
                 final_data, final_machine_data, hours, obs):
     line_send = {}
     line_send['nome_arquivo'] = str(fileName)
-    line_send['Mes'] =str(month)
+    # Set current Month
+    month = datetime.datetime.now().month
+    # month = 7
+    infoMonth = getMonthName(month)
+
+
+    line_send['Mes'] = infoMonth
     line_send['Ano'] = str(year)
     line_send['Professor'] = str(prof)
     line_send['Contrato'] = str(contract)
@@ -197,9 +324,10 @@ def mountInfo(wb, array_send, line_controller, fileName, month, year, prof, cont
     line_send['Fase'] = str(phase)
     line_send['Atividade'] = str(activity)
     line_send['Data'] = str(final_machine_data)
-    line_send['Quantidade'] = str(hours)
+    # line_send['Quantidade'] = str(hours)
     line_send['Observacao'] = str(obs)
-
+    
+    line_send['Quantidade'] = getRightDate(str(hours))
     array_send.append(line_send)
 
     wkLine = line_controller['all']
@@ -222,7 +350,7 @@ def mountInfo(wb, array_send, line_controller, fileName, month, year, prof, cont
     work_sheet.cell(row=wkLine, column=14).value = ""
     work_sheet.cell(row=wkLine, column=15).value = str(final_data)
     work_sheet.cell(row=wkLine, column=16).value = "**Copiar"
-    work_sheet.cell(row=wkLine, column=17).value = str(hours).replace(".", ",")
+    work_sheet.cell(row=wkLine, column=17).value = str(line_send['Quantidade']).replace(".", ",")
     work_sheet.cell(row=wkLine, column=18).value = ""
     
     wkLine = line_controller[course]
@@ -243,7 +371,7 @@ def mountInfo(wb, array_send, line_controller, fileName, month, year, prof, cont
     work_sheet.cell(row=wkLine, column=14).value = ""
     work_sheet.cell(row=wkLine, column=15).value = str(final_data)
     work_sheet.cell(row=wkLine, column=16).value = "**Copiar"
-    work_sheet.cell(row=wkLine, column=17).value = str(hours).replace(".", ",")
+    work_sheet.cell(row=wkLine, column=17).value = str(line_send['Quantidade']).replace(".", ",")
     work_sheet.cell(row=wkLine, column=18).value = ""
 
     line_controller['all'] += 1
@@ -288,7 +416,7 @@ var_lin = 0 # um contador genérico para contar as linhas
 var_ctr = 0 # um contador genérico, afinal, todo programa precisa de um
 var_wkl = 0 # um contador de linhas para o Workbook
 line_controller = {}
-array_courses = ['GTIO', 'AOJO', 'ASOO', 'ABDO', 'DTSO', 'BDTO', 'DGO', 'NGO', 'BIO', 'SGO', 'SCJO', 'STO'] 
+array_courses = ['GTIO', 'AOJO', 'ASOO', 'ABDO', 'DTSO', 'BDTO', 'DGO', 'NGO', 'BIO', 'SGO', 'SCJO', 'STO', 'BTO'] 
 
 isSendToBI = checkSendToBI()
 
