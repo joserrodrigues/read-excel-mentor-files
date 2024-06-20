@@ -328,6 +328,7 @@ def mountInfo(wb, array_send, line_controller, fileName, month, year, prof, cont
     line_send['Observacao'] = str(obs)
     
     line_send['Quantidade'] = getRightDate(str(hours))
+    line_send['PosTech'] = 1
     array_send.append(line_send)
 
     wkLine = line_controller['all']
@@ -416,7 +417,8 @@ var_lin = 0 # um contador genérico para contar as linhas
 var_ctr = 0 # um contador genérico, afinal, todo programa precisa de um
 var_wkl = 0 # um contador de linhas para o Workbook
 line_controller = {}
-array_courses = ['GTIO', 'AOJO', 'ASOO', 'ABDO', 'DTSO', 'BDTO', 'DGO', 'NGO', 'BIO', 'SGO', 'SCJO', 'STO', 'BTO'] 
+# array_courses = ['GTIO', 'AOJO', 'ASOO', 'ABDO', 'DTSO', 'BDTO', 'DGO', 'NGO', 'BIO', 'SGO', 'SCJO', 'STO', 'BTO'] 
+array_courses = ['DPMT', 'DVLT', 'IADT', 'MLET', 'FSDT', 'ADJT', 'NETT', 'DTAT', 'CBTT', 'CRTT', 'SOAT', 'FRNT'] 
 
 isSendToBI = checkSendToBI()
 
