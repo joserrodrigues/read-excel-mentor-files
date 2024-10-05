@@ -9,6 +9,7 @@
 
 # Imports
 from fileinput import filename
+from time import sleep
 import openpyxl # biblioteca que faz a leitura e gravação em arquivos Excel
 from openpyxl.worksheet.table import Table, TableStyleInfo
 import os       # biblioteca que acessa funções do sistema operacional
@@ -23,16 +24,29 @@ import datetime
 import warnings
 import sys
 
-def checkSendToBI():
-    # total arguments
-    n = len(sys.argv)
+# def checkArgsSend(info):
+#     # total arguments
+#     n = len(sys.argv)
 
-    if (len(sys.argv) == 1):
-        return False
+#     if (len(sys.argv) == 1):
+#         return False
 
-    for i in range(1, n):
-        if(sys.argv[i] == '-s'): 
+#     for i in range(1, n):
+#         if(sys.argv[i] == info): 
+#             return True
+
+def checkUserOptions(info):
+    while(True):
+        print(info)
+        input_return = input()
+        if(input_return.lower() == "s"):
             return True
+        elif(input_return.lower() == "n"):
+            return False
+        else:
+            print("Opção inválida")
+            sleep(1)
+            # os.system('clear')
 
 def getMonthName(month):
     if(month == 1):
@@ -305,6 +319,56 @@ def checkWorkSheetPattern(workbook):
 
     return True
 
+def checkWrongContentInSheet(workbook):
+
+    work_sheet_ind = getRightWorksheet(workbook)
+    if(work_sheet_ind == -1):
+        sendImportantMessage("[ERROR] Planilha com formato inválido: Worksheet fora do padrao \n\n")
+        return False    
+
+    worksheet = workbook.worksheets[work_sheet_ind]
+
+    #read all lines of worksheet
+    amount_hours = 0
+    var_lin = 8 # contador começa em 8 por ser a primeira linha que contém informações sobre as atividades
+    var_col = 1 # contador começa em 1 por ser a primeira coluna que contém informações sobre as atividades
+    while var_lin < 270: # iterando sobre a tabela com os dados das atividades reportadas        
+        var_check_end = worksheet.cell(row=var_lin, column=6).value # lendo o curso que o professor indicou        
+        if (isinstance(var_check_end, str) and "SUM" in var_check_end): # Checa se o cursor chegou no final da planilha
+            var_lin = 300
+        else:    
+            var_crs = worksheet.cell(row=var_lin, column=var_col).value # lendo o curso que o professor indicou
+            if(var_crs is not None): # verifica se há um curso sendo reportado, em caso de em branco, pula
+                var_qhr = worksheet.cell(row=var_lin, column=var_col + 5).value # lendo a quantidade de horas indicada
+                var_obs = str(worksheet.cell(row=var_lin, column=var_col + 6).value) # lendo a observação que foi apontada
+                var_col = 1 # resetando o contador de colunas
+                var_lin = var_lin + 1 # pulando para a próxima linha
+
+                message_lnh =  " na linha " + str(var_lin - 1) + "\n\n"
+                #check if var_obs contains "grupo"
+                if("grupo de estudos" in var_obs.lower()):
+                    sendImportantMessage("[ERROR] Observação contém a palavra grupo de estudos: " + var_obs +message_lnh)
+                    return False
+                
+                if("live" in var_obs.lower()):
+                    sendImportantMessage("[ERROR] Observação contém a palavra live: " + var_obs + message_lnh)
+                    return False
+                
+                if(int(var_qhr) >= 12):
+                    sendImportantMessage("[ERROR] Dia contem mais de 12 horas: " + str(var_qhr) + message_lnh)
+                    return False
+                
+                amount_hours += int(var_qhr)
+            else:
+                var_lin = var_lin + 1 # pulando para a próxima linha
+    
+    if(amount_hours > 50):
+        sendImportantMessage("[ERROR] Planilha contem total com mais de 50 horas: " + str(amount_hours) + "\n\n")
+        return False
+    
+    return True
+
+
 def mountInfo(wb, array_send, line_controller, fileName, month, year, prof, contract, course, class_txt, phase, activity, 
                 final_data, final_machine_data, hours, obs):
     line_send = {}
@@ -420,7 +484,13 @@ line_controller = {}
 # array_courses = ['GTIO', 'AOJO', 'ASOO', 'ABDO', 'DTSO', 'BDTO', 'DGO', 'NGO', 'BIO', 'SGO', 'SCJO', 'STO', 'BTO'] 
 array_courses = ['DPMT', 'DVLT', 'IADT', 'MLET', 'FSDT', 'ADJT', 'NETT', 'DTAT', 'CBTT', 'CRTT', 'SOAT', 'FRNT'] 
 
-isSendToBI = checkSendToBI()
+is_send_to_BI = checkUserOptions("Deseja enviar as informações para o PowerBI (s/n)")
+is_make_sheet_validation = checkUserOptions("Deseja checkar as informações da planilha (s/n)")
+print("Checkaing Info = " +  str(is_send_to_BI) + " - " + str(is_make_sheet_validation))
+
+if(not is_make_sheet_validation):
+    sendImportantMessage("\n ATENCAO: AS VERIFICACOES DA PLANILHAS SERAO IGNORADAS") 
+    sleep(5)
 
 isMac = False
 # verifica se o sistema operacional é Linux ou MacOS
@@ -479,71 +549,75 @@ for wb in var_flt:
         sendImportantMessage("[ERROR] Erro ao abrir a planilha")
 
     if(is_reading_ok and checkWorkSheetPattern(workbook)):
-        # definindo qual o caderno do Excel que será utilizado
-        work_sheet_ind = getRightWorksheet(workbook)
-        worksheet = workbook.worksheets[work_sheet_ind]
 
-        var_mon = worksheet.cell(row=3, column=2).value # lendo o mês do relatório
-        var_yea = worksheet.cell(row=3, column=6).value # lendo o ano do relatório
-        var_prf = getProfessorName(workbook) # lendo o nome do professor
-        var_tct = worksheet.cell(row=5, column=3).value # lendo o tipo de contrato do professor
-        
-        if(str(var_prf) == "" or str(var_prf) == "None"):
-            var_prf = worksheet.cell(row=4, column=1).value # lendo o nome do professor
-            var_prf = var_prf.replace("Nome do professor: ", "")
+        if(not is_make_sheet_validation or checkWrongContentInSheet(workbook)):        
+            # definindo qual o caderno do Excel que será utilizado
+            work_sheet_ind = getRightWorksheet(workbook)
+            worksheet = workbook.worksheets[work_sheet_ind]
 
-        var_lin = 8 # contador começa em 8 por ser a primeira linha que contém informações sobre as atividades
-        var_col = 1 # contador começa em 1 por ser a primeira coluna que contém informações sobre as atividades
-        while var_lin < 270: # iterando sobre a tabela com os dados das atividades reportadas        
-            var_check_end = worksheet.cell(row=var_lin, column=6).value # lendo o curso que o professor indicou        
-            if (isinstance(var_check_end, str) and "SUM" in var_check_end): # Checa se o cursor chegou no final da planilha
-                var_lin = 300
-            else:
-                var_crs = worksheet.cell(row=var_lin, column=var_col).value # lendo o curso que o professor indicou
-                if(var_crs is not None): # verifica se há um curso sendo reportado, em caso de em branco, pula
-                    var_trm = worksheet.cell(row=var_lin, column=var_col + 1).value # lendo a turma
-                    var_fas = worksheet.cell(row=var_lin, column=var_col + 2).value # lendo a fase
-                    var_atv = worksheet.cell(row=var_lin, column=var_col + 3).value # lendo a atividade
-                    var_dat = worksheet.cell(row=var_lin, column=var_col + 4).value # lendo a data da ocorrência
-                    var_qhr = worksheet.cell(row=var_lin, column=var_col + 5).value # lendo a quantidade de horas indicada
-                    var_obs = str(worksheet.cell(row=var_lin, column=var_col + 6).value) # lendo a observação que foi apontada
-                    var_col = 1 # resetando o contador de colunas
-                    var_lin = var_lin + 1 # pulando para a próxima linha
+            var_mon = worksheet.cell(row=3, column=2).value # lendo o mês do relatório
+            var_yea = worksheet.cell(row=3, column=6).value # lendo o ano do relatório
+            var_prf = getProfessorName(workbook) # lendo o nome do professor
+            var_tct = worksheet.cell(row=5, column=3).value # lendo o tipo de contrato do professor
+            
+            if(str(var_prf) == "" or str(var_prf) == "None"):
+                var_prf = worksheet.cell(row=4, column=1).value # lendo o nome do professor
+                var_prf = var_prf.replace("Nome do professor: ", "")
 
-                    if(str(var_obs) == "None"):
-                        var_obs = ""
-
-                    #Trabalhando com a data 
-                    final_var_data = ""
-                    final_machine_data = ""
-                    if (isinstance(var_dat, datetime.datetime)):
-                        final_var_data = var_dat.strftime("%d/%m/%Y")
-                        final_machine_data = var_dat.strftime("%Y-%m-%d")
-                    else:
-                        newDate = datetime.date.today().replace(day=1)
-                        final_var_data = newDate.strftime("%d/%m/%Y")
-                        final_machine_data = newDate.strftime("%Y-%m-%d")
-                        var_obs += " Data Corrigida - Dado Enviado = " + str(var_dat) 
-
-                    mountInfo(var_wkb, array_send, line_controller, var_naq, var_mon, var_yea, var_prf, var_tct, var_crs,
-                            var_trm, var_fas, var_atv, final_var_data, final_machine_data, var_qhr, var_obs)
+            var_lin = 8 # contador começa em 8 por ser a primeira linha que contém informações sobre as atividades
+            var_col = 1 # contador começa em 1 por ser a primeira coluna que contém informações sobre as atividades
+            while var_lin < 270: # iterando sobre a tabela com os dados das atividades reportadas        
+                var_check_end = worksheet.cell(row=var_lin, column=6).value # lendo o curso que o professor indicou        
+                if (isinstance(var_check_end, str) and "SUM" in var_check_end): # Checa se o cursor chegou no final da planilha
+                    var_lin = 300
                 else:
-                    var_lin = var_lin + 1 # pulando para a próxima linha
+                    var_crs = worksheet.cell(row=var_lin, column=var_col).value # lendo o curso que o professor indicou
+                    if(var_crs is not None): # verifica se há um curso sendo reportado, em caso de em branco, pula
+                        var_trm = worksheet.cell(row=var_lin, column=var_col + 1).value # lendo a turma
+                        var_fas = worksheet.cell(row=var_lin, column=var_col + 2).value # lendo a fase
+                        var_atv = worksheet.cell(row=var_lin, column=var_col + 3).value # lendo a atividade
+                        var_dat = worksheet.cell(row=var_lin, column=var_col + 4).value # lendo a data da ocorrência
+                        var_qhr = worksheet.cell(row=var_lin, column=var_col + 5).value # lendo a quantidade de horas indicada
+                        var_obs = str(worksheet.cell(row=var_lin, column=var_col + 6).value) # lendo a observação que foi apontada
+                        var_col = 1 # resetando o contador de colunas
+                        var_lin = var_lin + 1 # pulando para a próxima linha
 
-        # print(array_send)
-        if isSendToBI:
-            if  sendPowerBI(array_send, wb): #Envia para o PowerBI
-                success_send_bi_number +=1
-            else:
-                error_send_bi_number += 1
-        array_send.clear() # Limpa o array
-        
-        # Move para a pasta de lidos
-        str_filename = wb.replace(var_loc_read, "")
-        shutil.move(wb, var_loc_done+str_filename)
-        
-        var_ctr = var_ctr + 1 # pula para a próxima planiha quando termina a iteração da atual
-        success_process_number +=1
+                        if(str(var_obs) == "None"):
+                            var_obs = ""
+
+                        #Trabalhando com a data 
+                        final_var_data = ""
+                        final_machine_data = ""
+                        if (isinstance(var_dat, datetime.datetime)):
+                            final_var_data = var_dat.strftime("%d/%m/%Y")
+                            final_machine_data = var_dat.strftime("%Y-%m-%d")
+                        else:
+                            newDate = datetime.date.today().replace(day=1)
+                            final_var_data = newDate.strftime("%d/%m/%Y")
+                            final_machine_data = newDate.strftime("%Y-%m-%d")
+                            var_obs += " Data Corrigida - Dado Enviado = " + str(var_dat) 
+
+                        mountInfo(var_wkb, array_send, line_controller, var_naq, var_mon, var_yea, var_prf, var_tct, var_crs,
+                                var_trm, var_fas, var_atv, final_var_data, final_machine_data, var_qhr, var_obs)
+                    else:
+                        var_lin = var_lin + 1 # pulando para a próxima linha
+
+            # print(array_send)
+            if is_send_to_BI:
+                if  sendPowerBI(array_send, wb): #Envia para o PowerBI
+                    success_send_bi_number +=1
+                else:
+                    error_send_bi_number += 1
+            array_send.clear() # Limpa o array
+            
+            # Move para a pasta de lidos
+            str_filename = wb.replace(var_loc_read, "")
+            shutil.move(wb, var_loc_done+str_filename)
+            
+            var_ctr = var_ctr + 1 # pula para a próxima planiha quando termina a iteração da atual
+            success_process_number +=1
+        else:
+            error_process_number += 1            
     else:
         error_process_number += 1
     print ("\n ------------------------------------------------------------------\n\n")
@@ -559,7 +633,8 @@ final_message +="\n Enviado ao BI com erro: " + str(error_send_bi_number)
 final_message +="\n Processado com erro: " + str(error_process_number)
 final_message +="\n ------------------------------------------------------------------\n\n"
 
-if(not isSendToBI):
+if(not is_send_to_BI):
     final_message += "\n ATENCAO: AS INFORMACOES NAO FORAM ENVIADAS PARA O BI " 
+
 sendImportantMessage(final_message)
 
