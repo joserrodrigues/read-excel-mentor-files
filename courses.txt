@@ -1,0 +1,17 @@
+# Um código de curso por linha. Linhas vazias e comentários (#) são ignorados.
+DPMT
+DVLT
+IADT
+MLET
+FSDT
+ADJT
+NETT
+DTAT
+CBTT
+CRTT
+SOAT
+FRNT
+IAST
+DCLT
+TCMT
+GETT

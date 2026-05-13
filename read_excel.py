@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ************************************************************
-# Autor.......: Vladmir Cruz
+# Autor.......: Rubens Rodrigues
 # Data........: 06 de Junho de 2022
 # Arquivo.....:
 # Descricao...: Programa que le e escreve em arquivos Excel
@@ -23,6 +23,10 @@ from dotenv import load_dotenv
 import datetime
 import warnings
 import sys
+
+const_final_info_file = "final_info.txt"
+const_log_file_name = "reading.log"
+const_price_hours = 75
 
 # def checkArgsSend(info):
 #     # total arguments
@@ -80,6 +84,9 @@ def createAppFiles(log_file_name, isMac):
     if os.path.exists(log_file_name):
         os.remove(log_file_name)    
 
+    if os.path.exists(const_final_info_file):
+        os.remove(const_final_info_file)    
+
     warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 
 
@@ -102,6 +109,8 @@ def createAppFiles(log_file_name, isMac):
 
 def sendImportantMessage(message):
     print(message)
+    with open(const_final_info_file, "a", encoding="utf-8") as f:
+        f.write(f"{message}\n")
     logging.debug(message)
 
 def convertStringToDate(hour):
@@ -191,6 +200,24 @@ def getResultFile(isMac):
         return var_loc + '\\resultado\\' + 'resultado.xlsx'
 
 
+def load_courses_from_txt(path):
+    """Lê códigos de curso: um por linha; linhas vazias e linhas que começam com # são ignoradas."""
+    if not os.path.isfile(path):
+        sendImportantMessage("[ERROR] Arquivo de cursos não encontrado: " + path)
+        sys.exit(1)
+    courses = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            courses.append(line)
+    if not courses:
+        sendImportantMessage("[ERROR] Nenhum curso listado em: " + path)
+        sys.exit(1)
+    return courses
+
+
 def createResult(var_loc, isMac):
     wb = openpyxl.Workbook()    
     mainWks = wb.active
@@ -235,7 +262,7 @@ def createResult(var_loc, isMac):
 def getRightWorksheet(workbook):
     ind = 0
     for worksheet in workbook.worksheets:
-        if ("Preencher" in str(worksheet)):
+        if ("Preencher" in str(worksheet) or "Geral" in str(worksheet)):
             return ind
         ind += 1
     return -1
@@ -255,10 +282,14 @@ def getProfessorName(workbook):
         
     if(str(var_prf) == "" or str(var_prf) == "None"):
         var_prf = worksheet.cell(row=4, column=1).value # lendo o nome do professor
+        if(var_prf == None):
+            var_prf = ""
         var_prf = var_prf.replace("Nome do professor: ", "")
 
     if(str(var_prf) == "" or str(var_prf) == "None"):
         var_prf = worksheet.cell(row=4, column=2).value # lendo o nome do professor
+        if(var_prf == None):
+            var_prf = ""        
         var_prf = var_prf.replace("Nome do professor: ", "")        
 
     var_prf = var_prf.replace("_","")
@@ -274,7 +305,7 @@ def checkWorkSheetPattern(workbook):
 
     work_sheet_ind = getRightWorksheet(workbook)
     if(work_sheet_ind == -1):
-        sendImportantMessage("[ERROR] Planilha com formato inválido: Worksheet fora do padrao \n\n")
+        sendImportantMessage("[ERROR] Planilha com formato inválido: Worksheet fora do padrao - Não achou a aba Preencher ou Geral\n\n")
         return False    
 
     worksheet = workbook.worksheets[work_sheet_ind]
@@ -323,7 +354,7 @@ def checkWrongContentInSheet(workbook):
 
     work_sheet_ind = getRightWorksheet(workbook)
     if(work_sheet_ind == -1):
-        sendImportantMessage("[ERROR] Planilha com formato inválido: Worksheet fora do padrao \n\n")
+        sendImportantMessage("[ERROR] Planilha com formato inválido: Worksheet fora do padrao - Não achou a aba Preencher ou Geral\n\n")
         return False    
 
     worksheet = workbook.worksheets[work_sheet_ind]
@@ -344,6 +375,10 @@ def checkWrongContentInSheet(workbook):
                 var_col = 1 # resetando o contador de colunas
                 var_lin = var_lin + 1 # pulando para a próxima linha
 
+                if var_crs not in array_courses:
+                    sendImportantMessage("[ERROR] Curso inválido encontrado: " + str(var_crs) + " na linha " + str(var_lin - 1) + "\n\n")
+                    return False
+           
                 message_lnh =  " na linha " + str(var_lin - 1) + "\n\n"
                 #check if var_obs contains "grupo"
                 if("grupo de estudos" in var_obs.lower()):
@@ -353,8 +388,10 @@ def checkWrongContentInSheet(workbook):
                 if("live" in var_obs.lower()):
                     sendImportantMessage("[ERROR] Observação contém a palavra live: " + var_obs + message_lnh)
                     return False
+
+                var_qhr = getRightDate(var_qhr)
                 
-                if(int(var_qhr) >= 12):
+                if(var_qhr >= 12):
                     sendImportantMessage("[ERROR] Dia contem mais de 12 horas: " + str(var_qhr) + message_lnh)
                     return False
                 
@@ -399,45 +436,60 @@ def mountInfo(wb, array_send, line_controller, fileName, month, year, prof, cont
 
     work_sheet = wb['Sheet']
 
-    work_sheet.cell(row=wkLine, column=1).value = "VSTP"
-    work_sheet.cell(row=wkLine, column=2).value = "FIAP ON"
-    work_sheet.cell(row=wkLine, column=3).value = "EDUCACIONAL / PROFESSORES"
-    work_sheet.cell(row=wkLine, column=4).value = "MBA ON"
-    work_sheet.cell(row=wkLine, column=5).value = "Especialização"
-    work_sheet.cell(row=wkLine, column=6).value = str(course).upper()
-    work_sheet.cell(row=wkLine, column=7).value = "**Copiar"
-    work_sheet.cell(row=wkLine, column=8).value = "**Copiar"
-    work_sheet.cell(row=wkLine, column=9).value = str(prof).upper()
-    work_sheet.cell(row=wkLine, column=10).value = str(activity)
-    work_sheet.cell(row=wkLine, column=11).value = str(class_txt).replace(" ", "")
-    work_sheet.cell(row=wkLine, column=12).value = str(phase)
-    work_sheet.cell(row=wkLine, column=13).value = ""
-    work_sheet.cell(row=wkLine, column=14).value = ""
-    work_sheet.cell(row=wkLine, column=15).value = str(final_data)
-    work_sheet.cell(row=wkLine, column=16).value = "**Copiar"
-    work_sheet.cell(row=wkLine, column=17).value = str(line_send['Quantidade']).replace(".", ",")
+    # Coloca o mês e o ano atuais em português
+    _now = datetime.datetime.now()
+    current_month = getMonthName(_now.month)
+    current_year = _now.year
+
+    work_sheet.cell(row=wkLine, column=1).value = current_year
+    work_sheet.cell(row=wkLine, column=2).value = current_month.upper()
+    work_sheet.cell(row=wkLine, column=3).value = "VSTP"
+    work_sheet.cell(row=wkLine, column=4).value = "FIAP ON"
+    work_sheet.cell(row=wkLine, column=5).value = "EDUCACIONAL / PROFESSORES"
+    work_sheet.cell(row=wkLine, column=6).value = "PÓS TECH"
+    work_sheet.cell(row=wkLine, column=7).value = "Especialização"
+    work_sheet.cell(row=wkLine, column=8).value = str(course).upper()
+    work_sheet.cell(row=wkLine, column=9).value = "**Copiar"
+    work_sheet.cell(row=wkLine, column=10).value = "**Copiar"
+    work_sheet.cell(row=wkLine, column=11).value = str(prof).upper()
+    work_sheet.cell(row=wkLine, column=12).value = str(activity)
+    work_sheet.cell(row=wkLine, column=13).value = str(class_txt).replace(" ", "")
+    work_sheet.cell(row=wkLine, column=14).value = str(course).upper().replace(" ", "")
+    work_sheet.cell(row=wkLine, column=15).value = "**Copiar"
+    work_sheet.cell(row=wkLine, column=16).value = "10 Meses"
+    work_sheet.cell(row=wkLine, column=17).value = str(phase)
     work_sheet.cell(row=wkLine, column=18).value = ""
+    work_sheet.cell(row=wkLine, column=19).value = ""
+    work_sheet.cell(row=wkLine, column=20).value = str(final_data)
+    work_sheet.cell(row=wkLine, column=21).value = str(line_send['Quantidade']).replace(".", ",")
+    work_sheet.cell(row=wkLine, column=22).value = str(line_send['Quantidade'] * const_price_hours).replace(".", ",")
+    work_sheet.cell(row=wkLine, column=23).value = ""
     
     wkLine = line_controller[course]
     work_sheet = wb[course]
-    work_sheet.cell(row=wkLine, column=1).value = "VSTP"
-    work_sheet.cell(row=wkLine, column=2).value = "FIAP ON"
-    work_sheet.cell(row=wkLine, column=3).value = "EDUCACIONAL / PROFESSORES"
-    work_sheet.cell(row=wkLine, column=4).value = "MBA"
-    work_sheet.cell(row=wkLine, column=5).value = "Especialização"
-    work_sheet.cell(row=wkLine, column=6).value = str(course).upper()
-    work_sheet.cell(row=wkLine, column=7).value = "**Copiar"
-    work_sheet.cell(row=wkLine, column=8).value = "**Copiar"
-    work_sheet.cell(row=wkLine, column=9).value = str(prof).upper()
-    work_sheet.cell(row=wkLine, column=10).value = str(activity)
-    work_sheet.cell(row=wkLine, column=11).value = str(class_txt).replace(" ", "")
-    work_sheet.cell(row=wkLine, column=12).value = str(phase)
-    work_sheet.cell(row=wkLine, column=13).value = ""
-    work_sheet.cell(row=wkLine, column=14).value = ""
-    work_sheet.cell(row=wkLine, column=15).value = str(final_data)
-    work_sheet.cell(row=wkLine, column=16).value = "**Copiar"
-    work_sheet.cell(row=wkLine, column=17).value = str(line_send['Quantidade']).replace(".", ",")
+    work_sheet.cell(row=wkLine, column=1).value = current_year
+    work_sheet.cell(row=wkLine, column=2).value = current_month.upper()
+    work_sheet.cell(row=wkLine, column=3).value = "VSTP"
+    work_sheet.cell(row=wkLine, column=4).value = "FIAP ON"
+    work_sheet.cell(row=wkLine, column=5).value = "EDUCACIONAL / PROFESSORES"
+    work_sheet.cell(row=wkLine, column=6).value = "PÓS TECH"
+    work_sheet.cell(row=wkLine, column=7).value = "Especialização"
+    work_sheet.cell(row=wkLine, column=8).value = str(course).upper()
+    work_sheet.cell(row=wkLine, column=9).value = "**Copiar"
+    work_sheet.cell(row=wkLine, column=10).value = "**Copiar"
+    work_sheet.cell(row=wkLine, column=11).value = str(prof).upper()
+    work_sheet.cell(row=wkLine, column=12).value = str(activity)
+    work_sheet.cell(row=wkLine, column=13).value = str(class_txt).replace(" ", "")
+    work_sheet.cell(row=wkLine, column=14).value = str(course).upper().replace(" ", "")
+    work_sheet.cell(row=wkLine, column=15).value = "**Copiar"
+    work_sheet.cell(row=wkLine, column=16).value = "10 Meses"
+    work_sheet.cell(row=wkLine, column=17).value = str(phase)
     work_sheet.cell(row=wkLine, column=18).value = ""
+    work_sheet.cell(row=wkLine, column=19).value = ""
+    work_sheet.cell(row=wkLine, column=20).value = str(final_data)
+    work_sheet.cell(row=wkLine, column=21).value = str(line_send['Quantidade']).replace(".", ",")
+    work_sheet.cell(row=wkLine, column=22).value = str(line_send['Quantidade'] * const_price_hours).replace(".", ",")
+    work_sheet.cell(row=wkLine, column=23).value = ""
 
     line_controller['all'] += 1
     line_controller[course] += 1
@@ -481,8 +533,6 @@ var_lin = 0 # um contador genérico para contar as linhas
 var_ctr = 0 # um contador genérico, afinal, todo programa precisa de um
 var_wkl = 0 # um contador de linhas para o Workbook
 line_controller = {}
-# array_courses = ['GTIO', 'AOJO', 'ASOO', 'ABDO', 'DTSO', 'BDTO', 'DGO', 'NGO', 'BIO', 'SGO', 'SCJO', 'STO', 'BTO'] 
-array_courses = ['DPMT', 'DVLT', 'IADT', 'MLET', 'FSDT', 'ADJT', 'NETT', 'DTAT', 'CBTT', 'CRTT', 'SOAT', 'FRNT'] 
 
 is_send_to_BI = checkUserOptions("Deseja enviar as informações para o PowerBI (s/n)")
 is_make_sheet_validation = checkUserOptions("Deseja checkar as informações da planilha (s/n)")
@@ -498,7 +548,8 @@ if(var_os == 'linux' or var_os == 'linux2' or var_os == 'darwin'):
     isMac = True
 
 #cria os arquivos e pastas utilizadas no app
-createAppFiles('reading.log', isMac)
+createAppFiles(const_log_file_name, isMac)
+array_courses = load_courses_from_txt(os.path.join(var_loc, "courses.txt"))
 info_message = "\n ------------------------------------------------------------------"
 info_message += "\n  Iniciando a importacao "
 info_message += "\n ------------------------------------------------------------------"
